@@ -542,6 +542,7 @@ When an HTTP transport is selected:
 
 - MCP clients connect to the **`/mcp`** path (e.g. `http://localhost:8000/mcp`).
 - A plain **`GET /healthz`** endpoint is exposed for liveness/readiness probes.
+- A single request body is limited to 4 MiB (an MCP SDK default). Larger requests, such as a very large `upload_course` GPX, get HTTP 413. Use stdio for those.
 
 The server itself performs **no authentication** on the HTTP endpoint — put it behind a reverse proxy (nginx, Traefik, Authelia, etc.) if it is reachable beyond localhost.
 
