@@ -19,6 +19,18 @@ from mcp import Client, StdioServerParameters
 
 SRC_DIR = Path(__file__).resolve().parents[2] / "src"
 
+# "legacy" is the initialize handshake today's clients (Claude Desktop) use;
+# "auto" lets mcp 2 pick the newest protocol the server offers.
+CLIENT_MODES = ["legacy", "auto"]
+NEWEST_PROTOCOL = "2026-07-28"
+
+
+def _assert_protocol(client, mode):
+    if mode == "legacy":
+        assert client.protocol_version != NEWEST_PROTOCOL
+    else:
+        assert client.protocol_version == NEWEST_PROTOCOL
+
 
 def _server_env(tmp_path, **extra):
     env = {k: v for k, v in os.environ.items() if not k.startswith("GARMIN")}
@@ -36,7 +48,8 @@ def _free_port():
 
 
 @pytest.mark.timeout(60)
-async def test_stdio_server_lists_tools_and_reads_a_resource(tmp_path):
+@pytest.mark.parametrize("mode", CLIENT_MODES)
+async def test_stdio_server_lists_tools_and_reads_a_resource(tmp_path, mode):
     params = StdioServerParameters(
         command=sys.executable,
         args=["-m", "garmin_mcp"],
@@ -44,7 +57,8 @@ async def test_stdio_server_lists_tools_and_reads_a_resource(tmp_path):
         cwd=str(tmp_path),
     )
 
-    async with Client(params) as client:
+    async with Client(params, mode=mode) as client:
+        _assert_protocol(client, mode)
         tools = await client.list_tools()
         resource = await client.read_resource("workout://templates/simple-run")
 
@@ -90,10 +104,12 @@ def http_server(tmp_path):
 
 
 @pytest.mark.timeout(60)
-async def test_streamable_http_serves_healthz_and_tools(http_server):
+@pytest.mark.parametrize("mode", CLIENT_MODES)
+async def test_streamable_http_serves_healthz_and_tools(http_server, mode):
     base_url, health = http_server
 
-    async with Client(f"{base_url}/mcp") as client:
+    async with Client(f"{base_url}/mcp", mode=mode) as client:
+        _assert_protocol(client, mode)
         tools = await client.list_tools()
 
     assert health == b"ok"

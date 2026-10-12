@@ -1,10 +1,12 @@
 """Startup smoke tests for the packaged MCP server."""
 
 import asyncio
+import importlib.metadata
 from unittest.mock import Mock
 
 import garmin_mcp
 import pytest
+from mcp import Client
 from mcp.server.mcpserver import MCPServer
 
 
@@ -147,3 +149,24 @@ def test_allowlist_limits_tools_on_real_server(monkeypatch):
     garmin_mcp.main()
 
     assert sorted(listed) == ["get_devices", "get_workouts"]
+
+
+def test_main_reports_package_version_to_clients(monkeypatch):
+    """mcp 1.x always sent a version in serverInfo; MCPServer defaults to ""."""
+    _clear_server_env(monkeypatch)
+    monkeypatch.setattr(garmin_mcp, "init_api", lambda _email, _password: Mock())
+    server_infos = []
+
+    async def handshake(server):
+        async with Client(server, mode="legacy") as client:
+            return client.server_info
+
+    def capture_run(self, **_kwargs):
+        server_infos.append(asyncio.run(handshake(self)))
+
+    monkeypatch.setattr(MCPServer, "run", capture_run)
+
+    garmin_mcp.main()
+
+    assert server_infos[0].name == "Garmin Connect v1.0"
+    assert server_infos[0].version == importlib.metadata.version("garmin-mcp")

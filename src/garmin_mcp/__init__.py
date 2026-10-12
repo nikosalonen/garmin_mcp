@@ -6,6 +6,7 @@ import os
 import sys
 import base64
 import functools
+import importlib.metadata
 import inspect
 import threading
 
@@ -352,6 +353,14 @@ def _parse_transport_config() -> tuple[str, str, int]:
     return transport, http_host, http_port
 
 
+def _package_version():
+    """This package's version for serverInfo; mcp 2.x would otherwise send ""."""
+    try:
+        return importlib.metadata.version("garmin-mcp")
+    except importlib.metadata.PackageNotFoundError:
+        return ""  # running from a source tree that was never installed
+
+
 def _keep_error_message(fn):
     """Re-raise a tool's unexpected exception as ToolError.
 
@@ -641,7 +650,7 @@ def main():
     calendar_events.configure(garmin_client)
 
     # Create the MCP app, wrapped so the env-var filter can drop tools.
-    mcp_server = MCPServer("Garmin Connect v1.0")
+    mcp_server = MCPServer("Garmin Connect v1.0", version=_package_version())
     app = _ToolFilter(mcp_server, enabled_tools, disabled_tools)
     if enabled_tools:
         print(f"Tool filter: allowlist of {len(enabled_tools)} tool(s).", file=sys.stderr)
