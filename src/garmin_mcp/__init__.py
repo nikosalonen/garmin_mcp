@@ -5,10 +5,14 @@ Modular MCP Server for Garmin Connect Data
 import os
 import sys
 import base64
+import functools
+import importlib.metadata
+import inspect
 import threading
 
 import requests
-from mcp.server.fastmcp import FastMCP
+from mcp.server.mcpserver import MCPServer
+from mcp.server.mcpserver.exceptions import ToolError
 
 from garminconnect import Garmin, GarminConnectAuthenticationError, GarminConnectConnectionError, GarminConnectTooManyRequestsError
 
@@ -349,8 +353,48 @@ def _parse_transport_config() -> tuple[str, str, int]:
     return transport, http_host, http_port
 
 
+def _package_version():
+    """This package's version for serverInfo; mcp 2.x would otherwise send ""."""
+    try:
+        return importlib.metadata.version("garmin-mcp")
+    except importlib.metadata.PackageNotFoundError:
+        return ""  # running from a source tree that was never installed
+
+
+def _keep_error_message(fn):
+    """Re-raise a tool's unexpected exception as ToolError.
+
+    mcp 2.x hides the message of any other exception from the client
+    ("Error executing tool <name>"). ToolError keeps it, so the client sees
+    "Error executing tool <name>: <message>" as it did with mcp 1.x.
+    """
+    if inspect.iscoroutinefunction(fn):
+
+        @functools.wraps(fn)
+        async def guarded_async(*args, **kwargs):
+            try:
+                return await fn(*args, **kwargs)
+            except ToolError:
+                raise
+            except Exception as exc:
+                raise ToolError(str(exc)) from exc
+
+        return guarded_async
+
+    @functools.wraps(fn)
+    def guarded(*args, **kwargs):
+        try:
+            return fn(*args, **kwargs)
+        except ToolError:
+            raise
+        except Exception as exc:
+            raise ToolError(str(exc)) from exc
+
+    return guarded
+
+
 class _ToolFilter:
-    """Wraps a FastMCP app to conditionally register tools by function name.
+    """Wraps an MCPServer app to conditionally register tools by function name.
 
     Modules register via ``@app.tool()``; we intercept that decorator and skip
     registration for any tool not permitted by the env-var filter. All other
@@ -370,7 +414,7 @@ class _ToolFilter:
         return name not in self._disabled
 
     def tool(self, *args, **kwargs):
-        # Most tools return json.dumps(...) as str. FastMCP's default
+        # Most tools return json.dumps(...) as str. MCPServer's default
         # structured_output auto-detection then wraps that string again as
         # structuredContent {"result": "<escaped json>"}, doubling payload
         # size for clients that forward both blocks (issue #331). Opt out
@@ -387,8 +431,10 @@ class _ToolFilter:
             name = explicit or getattr(fn, "__name__", "")
             self._seen.add(name.lower())
             if self._allowed(name):
-                return decorator(fn)
-            return fn  # skip registration; tool never reaches the LLM
+                decorator(_keep_error_message(fn))
+            # Return the plain function either way; modules and tests call it
+            # directly, and a skipped tool never reaches the LLM.
+            return fn
 
         return wrapper
 
@@ -604,9 +650,8 @@ def main():
     calendar_events.configure(garmin_client)
 
     # Create the MCP app, wrapped so the env-var filter can drop tools.
-    # host/port only matter for the HTTP transports; stdio ignores them.
-    fastmcp = FastMCP("Garmin Connect v1.0", host=http_host, port=http_port)
-    app = _ToolFilter(fastmcp, enabled_tools, disabled_tools)
+    mcp_server = MCPServer("Garmin Connect v1.0", version=_package_version())
+    app = _ToolFilter(mcp_server, enabled_tools, disabled_tools)
     if enabled_tools:
         print(f"Tool filter: allowlist of {len(enabled_tools)} tool(s).", file=sys.stderr)
     elif disabled_tools:
@@ -647,7 +692,7 @@ def main():
         from starlette.requests import Request
         from starlette.responses import PlainTextResponse
 
-        @fastmcp.custom_route("/healthz", methods=["GET"])
+        @mcp_server.custom_route("/healthz", methods=["GET"])
         async def healthz(_request: "Request") -> "PlainTextResponse":
             return PlainTextResponse("ok")
 
@@ -656,8 +701,12 @@ def main():
             file=sys.stderr,
         )
 
-    # Run the MCP server
-    app.run(transport=transport)
+    # Run the MCP server. host/port only apply to the HTTP transports;
+    # stdio takes no options.
+    if transport == "stdio":
+        app.run(transport="stdio")
+    else:
+        app.run(transport=transport, host=http_host, port=http_port)
 
 
 if __name__ == "__main__":
