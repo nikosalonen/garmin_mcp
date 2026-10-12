@@ -7,7 +7,7 @@ from garmin_mcp import _ToolFilter
 
 
 class FakeApp:
-    """Minimal stand-in for FastMCP: records which tools get registered."""
+    """Minimal stand-in for MCPServer: records which tools get registered."""
 
     def __init__(self):
         self.registered = []
@@ -138,3 +138,21 @@ def test_structured_output_explicit_true_is_preserved():
     fn.__name__ = "get_a"
     filt.tool(structured_output=True)(fn)
     assert app.tool_kwargs == [{"structured_output": True}]
+
+
+from mcp.server.mcpserver import MCPServer
+
+
+async def test_string_tool_result_has_no_structured_content():
+    """A JSON-string result must reach clients once, not twice (#331)."""
+    server = MCPServer("test")
+    filt = _ToolFilter(server, set(), set())
+
+    @filt.tool()
+    async def get_a() -> str:
+        return '{"a": 1}'
+
+    result = await server.call_tool("get_a", {})
+
+    assert result.content[0].text == '{"a": 1}'
+    assert result.structured_content is None

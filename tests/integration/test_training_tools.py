@@ -1,11 +1,11 @@
 """
 Integration tests for training module MCP tools
 
-Tests training tools using FastMCP integration with mocked Garmin API responses.
+Tests training tools using MCPServer integration with mocked Garmin API responses.
 """
 import pytest
 from unittest.mock import Mock
-from mcp.server.fastmcp import FastMCP
+from mcp.server.mcpserver import MCPServer
 
 import json
 
@@ -27,9 +27,9 @@ from tests.fixtures.garmin_responses import (
 
 @pytest.fixture
 def app_with_training(mock_garmin_client):
-    """Create FastMCP app with training tools registered"""
+    """Create MCPServer app with training tools registered"""
     training.configure(mock_garmin_client)
-    app = FastMCP("Test Training")
+    app = MCPServer("Test Training")
     app = training.register_tools(app)
     return app
 
@@ -99,7 +99,7 @@ async def test_get_endurance_score_tool(app_with_training, mock_garmin_client):
     mock_garmin_client.get_endurance_score.assert_called_once_with("2024-01-08", "2024-01-15")
 
     # Parse the result and verify content
-    data = json.loads(result[0][0].text)
+    data = json.loads(result.content[0].text)
 
     # Check period summary
     assert data["period_avg_score"] == 5631
@@ -170,7 +170,7 @@ async def test_get_training_effect_tool(app_with_training, mock_garmin_client):
     # Verify
     assert result is not None
     mock_garmin_client.get_activity.assert_called_once_with(12345678901)
-    data = json.loads(result[0][0].text)
+    data = json.loads(result.content[0].text)
     assert data["training_effect"] == 3.5
     assert data["aerobic_effect"] == 3.5
     assert data["anaerobic_effect"] == 2.0
@@ -228,7 +228,7 @@ async def test_get_cycling_ftp_tool(app_with_training, mock_garmin_client):
     assert result is not None
     mock_garmin_client.get_cycling_ftp.assert_called_once_with()
 
-    data = json.loads(result[0][0].text)
+    data = json.loads(result.content[0].text)
     assert data["sport"] == "CYCLING"
     assert data["functional_threshold_power_watts"] == 294
     assert data["calendar_date"] == "2024-03-15T10:30:00.000"
@@ -306,7 +306,7 @@ async def test_get_training_status_skips_null_device_entries(
         {"date": "2026-08-24"},
     )
 
-    data = json.loads(result[0][0].text)
+    data = json.loads(result.content[0].text)
     assert data["date"] == "2026-08-24"
     assert data["training_status"] == "PRODUCTIVE"
     assert data["acute_load"] == 250
@@ -346,7 +346,7 @@ async def test_get_training_status_skips_empty_device_entries(
         {"date": "2026-08-24"},
     )
 
-    data = json.loads(result[0][0].text)
+    data = json.loads(result.content[0].text)
     assert data["training_status"] == "PRODUCTIVE"
     assert data["acute_load"] == 250
     assert data["monthly_load_aerobic_low"] == 100
@@ -376,7 +376,7 @@ async def test_get_training_status_tolerates_all_null_device_maps(
         {"date": "2026-08-24"},
     )
 
-    assert json.loads(result[0][0].text) == {"date": "2026-08-24"}
+    assert json.loads(result.content[0].text) == {"date": "2026-08-24"}
     mock_garmin_client.get_training_status.assert_called_once_with("2026-08-24")
 
 
@@ -392,7 +392,7 @@ async def test_get_training_status_tolerates_non_mapping_response(
         {"date": "2026-08-24"},
     )
 
-    assert result[0][0].text == "No training status data found for 2026-08-24."
+    assert result.content[0].text == "No training status data found for 2026-08-24."
     mock_garmin_client.get_training_status.assert_called_once_with("2026-08-24")
 
 
@@ -414,7 +414,7 @@ async def test_get_vo2max_trend_falls_back_to_profile(
         "get_vo2max_trend", {"start_date": "2024-01-14", "end_date": "2024-01-15"}
     )
 
-    data = json.loads(result[0][0].text)
+    data = json.loads(result.content[0].text)
     assert data["data_points"] == 0
     assert data["first_vo2_max"] is None
     assert data["latest_vo2_max"] is None
@@ -465,7 +465,7 @@ async def test_get_vo2max_trend_uses_daily_metrics(
         "get_vo2max_trend", {"start_date": "2024-01-14", "end_date": "2024-01-15"}
     )
 
-    data = json.loads(result[0][0].text)
+    data = json.loads(result.content[0].text)
     assert data["latest_vo2_max"] == 28.0
     assert data["change"] == 0.5
     assert data["sport"] == "running"
@@ -521,7 +521,7 @@ async def test_get_vo2max_trend_carries_forward_activity_day_values(
         "get_vo2max_trend", {"start_date": "2024-01-12", "end_date": "2024-01-16"}
     )
 
-    data = json.loads(result[0][0].text)
+    data = json.loads(result.content[0].text)
     assert data["sport"] == "running"
     assert data["data_points"] == 4
     assert data["first_vo2_max"] == 47.6
@@ -561,7 +561,7 @@ async def test_get_vo2max_trend_prefers_training_status(
         "get_vo2max_trend", {"start_date": "2024-01-14", "end_date": "2024-01-15"}
     )
 
-    data = json.loads(result[0][0].text)
+    data = json.loads(result.content[0].text)
     assert data["latest_vo2_max"] == 48.5
     assert data["sport"] == "running"
     assert all(point["source"] == "get_training_status" for point in data["trend"])
@@ -599,7 +599,7 @@ async def test_get_vo2max_trend_preserves_selected_cycling_from_mixed_payloads(
         "get_vo2max_trend", {"start_date": "2024-01-13", "end_date": "2024-01-15"}
     )
 
-    data = json.loads(result[0][0].text)
+    data = json.loads(result.content[0].text)
     assert data["sport"] == "cycling"
     assert data["change"] == 2.0
     assert data["trend"] == [
@@ -641,7 +641,7 @@ async def test_get_vo2max_trend_selects_sport_with_most_history(
         "get_vo2max_trend", {"start_date": "2024-01-13", "end_date": "2024-01-15"}
     )
 
-    data = json.loads(result[0][0].text)
+    data = json.loads(result.content[0].text)
     assert data["sport"] == "running"
     assert data["data_points"] == 2
     assert [point["vo2_max"] for point in data["trend"]] == [48.0, 48.5]
@@ -668,7 +668,7 @@ async def test_get_vo2max_trend_uses_cycling_range_metrics(
         "get_vo2max_trend", {"start_date": "2024-01-15", "end_date": "2024-01-15"}
     )
 
-    data = json.loads(result[0][0].text)
+    data = json.loads(result.content[0].text)
     assert data["sport"] == "cycling"
     assert data["trend"] == [
         {
@@ -698,7 +698,7 @@ async def test_get_vo2max_trend_range_failure_does_not_retry_max_metrics_daily(
         "get_vo2max_trend", {"start_date": "2024-01-14", "end_date": "2024-01-15"}
     )
 
-    data = json.loads(result[0][0].text)
+    data = json.loads(result.content[0].text)
     assert data["sport"] == "running"
     assert mock_garmin_client.get_training_status.call_count == 2
     mock_garmin_client.get_max_metrics.assert_not_called()
@@ -719,7 +719,7 @@ async def test_get_vo2max_trend_uses_daily_max_metrics_for_older_clients(
         "get_vo2max_trend", {"start_date": "2024-01-15", "end_date": "2024-01-15"}
     )
 
-    data = json.loads(result[0][0].text)
+    data = json.loads(result.content[0].text)
     assert data["latest_vo2_max"] == 48.0
     mock_garmin_client.connectapi.assert_not_called()
     mock_garmin_client.get_max_metrics.assert_called_once_with("2024-01-15")
@@ -745,7 +745,7 @@ async def test_get_vo2max_trend_prefers_running_when_sport_coverage_is_tied(
         "get_vo2max_trend", {"start_date": "2024-01-15", "end_date": "2024-01-15"}
     )
 
-    data = json.loads(result[0][0].text)
+    data = json.loads(result.content[0].text)
     assert data["sport"] == "running"
     assert data["latest_vo2_max"] == 48.0
 
@@ -768,7 +768,7 @@ async def test_get_vo2max_trend_no_history_avoids_daily_max_metrics_requests(
         "get_vo2max_trend", {"start_date": "2024-01-01", "end_date": "2024-03-30"}
     )
 
-    data = json.loads(result[0][0].text)
+    data = json.loads(result.content[0].text)
     assert data["data_points"] == 0
     assert mock_garmin_client.get_training_status.call_count == 90
     assert mock_garmin_client.connectapi.call_count == 1
@@ -792,7 +792,7 @@ async def test_get_vo2max_trend_handles_endpoint_exception_and_missing_method(
         "get_vo2max_trend", {"start_date": "2024-01-14", "end_date": "2024-01-15"}
     )
 
-    data = json.loads(result[0][0].text)
+    data = json.loads(result.content[0].text)
     assert data["current_vo2_max_estimate"]["sport"] == "cycling"
     assert mock_garmin_client.get_training_status.call_count == 2
 
@@ -814,7 +814,7 @@ async def test_get_lactate_threshold_tool_latest(app_with_training, mock_garmin_
     mock_garmin_client.get_lactate_threshold.assert_called_once_with(latest=True)
 
     # Verify output structure
-    data = json.loads(result[0][0].text)
+    data = json.loads(result.content[0].text)
     # Garmin returns speed as seconds/metre (inverse pace); the tool inverts it to m/s.
     assert abs(data["lactate_threshold_speed_mps"] - 1 / 0.32222132) < 1e-6
     assert data["lactate_threshold_heart_rate_bpm"] == 169
@@ -844,7 +844,7 @@ async def test_get_lactate_threshold_tool_range(app_with_training, mock_garmin_c
     )
 
     # Verify output structure
-    data = json.loads(result[0][0].text)
+    data = json.loads(result.content[0].text)
     assert data["start_date"] == "2024-01-08"
     assert data["end_date"] == "2024-01-15"
     assert "speed_history" in data
@@ -888,7 +888,7 @@ async def test_get_training_effect_exception(app_with_training, mock_garmin_clie
 
     # Verify error is handled gracefully
     assert result is not None
-    assert "Error retrieving training effect data" in result[0][0].text
+    assert "Error retrieving training effect data" in result.content[0].text
 
 
 @pytest.mark.asyncio
@@ -917,7 +917,7 @@ async def test_get_training_effect_falls_back_to_activity_list_on_403(
         {"activity_id": 12345678901},
     )
 
-    data = json.loads(result[0][0].text)
+    data = json.loads(result.content[0].text)
     assert data["source"] == "activity_list"
     assert data["training_effect"] == 3.2
     assert data["anaerobic_effect"] == 0.4
@@ -943,7 +943,7 @@ async def test_get_training_effect_403_without_list_match(
         {"activity_id": 12345678901},
     )
 
-    text = result[0][0].text
+    text = result.content[0].text
     assert "HTTP 403" in text
     assert "12345678901" in text
 
@@ -960,7 +960,7 @@ async def test_get_training_status_includes_cycling_vo2_max(app_with_training, m
 
     assert result is not None
     import json
-    text = result[0][0].text if result and result[0] else str(result)
+    text = result.content[0].text if result.content else str(result)
     try:
         data = json.loads(text)
         assert data.get("cycling_vo2_max") == 55.0
@@ -985,7 +985,7 @@ async def test_get_running_tolerance_tool(app_with_training, mock_garmin_client)
         "2024-01-15", "2024-01-15", aggregation="daily"
     )
 
-    data = json.loads(result[0][0].text)
+    data = json.loads(result.content[0].text)
     assert data["date"] == "2024-01-15"
     assert data["tolerance_km"] == 34.0
     assert data["acute_load_km"] == 25.0
@@ -1005,7 +1005,7 @@ async def test_get_running_tolerance_unsupported_device(app_with_training, mock_
     )
 
     assert result is not None
-    assert result[0][0].text == "Your device does not support this metric."
+    assert result.content[0].text == "Your device does not support this metric."
 
 
 @pytest.mark.asyncio
@@ -1019,7 +1019,7 @@ async def test_get_running_tolerance_error(app_with_training, mock_garmin_client
     )
 
     assert result is not None
-    assert "Error retrieving running tolerance data" in result[0][0].text
+    assert "Error retrieving running tolerance data" in result.content[0].text
 
 
 @pytest.mark.asyncio
@@ -1037,7 +1037,7 @@ async def test_get_running_tolerance_trend_daily_sorts_by_date(app_with_training
         "2024-01-15", "2024-01-16", aggregation="daily"
     )
 
-    data = json.loads(result[0][0].text)
+    data = json.loads(result.content[0].text)
     assert data["aggregation"] == "daily"
     assert data["data_points"] == 2
     assert [p["date"] for p in data["trend"]] == ["2024-01-15", "2024-01-16"]
@@ -1063,7 +1063,7 @@ async def test_get_running_tolerance_trend_weekly_default(app_with_training, moc
         "2024-01-02", "2024-01-15", aggregation="weekly"
     )
 
-    data = json.loads(result[0][0].text)
+    data = json.loads(result.content[0].text)
     assert data["aggregation"] == "weekly"
     week = data["trend"][0]
     assert week["start_of_week"] == "2024-01-02"
@@ -1086,7 +1086,7 @@ async def test_get_running_tolerance_trend_unsupported_device(app_with_training,
     )
 
     assert result is not None
-    assert result[0][0].text == "Your device does not support this metric."
+    assert result.content[0].text == "Your device does not support this metric."
 
 
 @pytest.mark.asyncio
@@ -1100,7 +1100,7 @@ async def test_get_running_tolerance_trend_error(app_with_training, mock_garmin_
     )
 
     assert result is not None
-    assert "Error retrieving running tolerance trend" in result[0][0].text
+    assert "Error retrieving running tolerance trend" in result.content[0].text
 
 
 @pytest.mark.asyncio
@@ -1112,7 +1112,7 @@ async def test_get_running_tolerance_trend_invalid_range(app_with_training, mock
     )
 
     assert result is not None
-    assert "end_date must be on or after start_date" in result[0][0].text
+    assert "end_date must be on or after start_date" in result.content[0].text
     mock_garmin_client.get_running_tolerance.assert_not_called()
 
 
@@ -1125,7 +1125,7 @@ async def test_get_running_tolerance_trend_daily_range_too_large(app_with_traini
     )
 
     assert result is not None
-    assert "Date range too large" in result[0][0].text
+    assert "Date range too large" in result.content[0].text
     mock_garmin_client.get_running_tolerance.assert_not_called()
 
 
@@ -1146,7 +1146,7 @@ async def test_get_training_status_no_cycling_vo2_when_absent(app_with_training,
 
     assert result is not None
     import json
-    text = result[0][0].text if result and result[0] else str(result)
+    text = result.content[0].text if result.content else str(result)
     try:
         data = json.loads(text)
         assert "cycling_vo2_max" not in data
@@ -1173,7 +1173,7 @@ async def test_get_hrv_data_handles_null_summary(app_with_training, mock_garmin_
         "get_hrv_data",
         {"date": "2024-01-15"},
     )
-    text = result[0][0].text
+    text = result.content[0].text
     assert "NoneType" not in text
     assert "Error" not in text
 
@@ -1194,7 +1194,7 @@ async def test_get_progress_summary_handles_null_stats(app_with_training, mock_g
         "get_progress_summary_between_dates",
         {"start_date": "2024-01-08", "end_date": "2024-01-15", "metric": "duration"},
     )
-    text = result[0][0].text
+    text = result.content[0].text
     assert "NoneType" not in text
     assert "Error" not in text
 
@@ -1243,7 +1243,7 @@ async def test_get_progress_summary_converts_calories_from_garmin_units(
         "get_progress_summary_between_dates",
         {"start_date": "2024-01-08", "end_date": "2024-01-15", "metric": "calories"},
     )
-    data = json.loads(result[0][0].text)
+    data = json.loads(result.content[0].text)
 
     assert "date" not in data
     assert data["count_of_activities"] == 3  # 1 running + 2 fitness_equipment
@@ -1287,7 +1287,7 @@ async def test_get_progress_summary_leaves_non_calorie_metrics_unconverted(
         "get_progress_summary_between_dates",
         {"start_date": "2024-01-08", "end_date": "2024-01-15", "metric": "duration"},
     )
-    data = json.loads(result[0][0].text)
+    data = json.loads(result.content[0].text)
 
     assert data["stats_by_activity_type"]["running"]["sum"] == 4450.452
     assert data["count_of_activities"] == 1
@@ -1316,7 +1316,7 @@ async def test_get_acclimation_returns_heat_data(app_with_training, mock_garmin_
         {"date": "2024-07-15"},
     )
 
-    data = json.loads(result[0][0].text)
+    data = json.loads(result.content[0].text)
     assert data["date"] == "2024-07-15"
     assert data["heat_acclimation_percent"] == 72.5
     assert data["previous_heat_acclimation_percent"] == 65.0
@@ -1339,7 +1339,7 @@ async def test_get_acclimation_no_data(app_with_training, mock_garmin_client):
         {"date": "2024-07-15"},
     )
 
-    assert "No acclimation data" in result[0][0].text
+    assert "No acclimation data" in result.content[0].text
 
 
 @pytest.mark.asyncio
@@ -1352,7 +1352,7 @@ async def test_get_acclimation_exception(app_with_training, mock_garmin_client):
         {"date": "2024-07-15"},
     )
 
-    assert "Error" in result[0][0].text
+    assert "Error" in result.content[0].text
 
 
 @pytest.mark.asyncio
@@ -1365,7 +1365,7 @@ async def test_hrv_trend_uses_reported_nightly_averages(app_with_training, mock_
     result = await app_with_training.call_tool(
         "get_hrv_trend", {"start_date": "2026-09-04", "end_date": "2026-09-05"}
     )
-    data = json.loads(result[0][0].text)
+    data = json.loads(result.content[0].text)
     assert data["days_with_data"] == 2
     assert [day["last_night_avg_hrv_ms"] for day in data["trend"]] == [54, 70]
     assert data["period_avg_hrv_ms"] == 62
@@ -1385,7 +1385,7 @@ async def test_hrv_trend_averages_only_available_nights(app_with_training, mock_
     result = await app_with_training.call_tool(
         "get_hrv_trend", {"start_date": "2026-09-01", "end_date": "2026-09-05"}
     )
-    data = json.loads(result[0][0].text)
+    data = json.loads(result.content[0].text)
     assert data["days_with_data"] == 3
     assert data["period_avg_hrv_ms"] == 62.5
     assert "last_night_avg_hrv_ms" not in data["trend"][1]
@@ -1397,6 +1397,6 @@ async def test_hrv_trend_without_nightly_values(app_with_training, mock_garmin_c
     result = await app_with_training.call_tool(
         "get_hrv_trend", {"start_date": "2026-09-05", "end_date": "2026-09-05"}
     )
-    data = json.loads(result[0][0].text)
+    data = json.loads(result.content[0].text)
     assert data["period_avg_hrv_ms"] is None
     assert data["trend"] == [{"date": "2026-09-05", "weekly_avg_hrv_ms": 60}]
