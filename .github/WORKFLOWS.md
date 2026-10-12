@@ -11,7 +11,7 @@ This repository uses GitHub Actions for continuous integration and security chec
 - Pushes to `main` or `master`
 
 **What it does:**
-- Tests the codebase across Python versions 3.10, 3.11, 3.12, and 3.13
+- Tests the codebase across Python versions 3.12, 3.13, 3.14 and 3.15
 - Runs all integration and unit tests
 - Uses uv for fast dependency management
 - Provides a test summary
@@ -24,7 +24,7 @@ This repository uses GitHub Actions for continuous integration and security chec
 - Pull request opened, synchronized, or reopened
 
 **What it does:**
-- Comprehensive validation on Python 3.13
+- Comprehensive validation on Python 3.15
 - Runs all tests with strict markers and fail-fast behavior (max 5 failures)
 - Validates package installation
 - Checks `pyproject.toml` syntax

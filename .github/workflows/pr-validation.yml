@@ -18,7 +18,7 @@ jobs:
         enable-cache: true
 
     - name: Set up Python
-      run: uv python install 3.13
+      run: uv python install 3.15
 
     - name: Install dependencies
       run: uv sync
@@ -53,7 +53,7 @@ jobs:
 
     - name: Test package installation
       run: |
-        uv python install 3.13
+        uv python install 3.15
         uv sync
         uv run garmin-mcp --help || echo "CLI help command check"
 

@@ -7,11 +7,11 @@ name = "garmin-mcp"
 version = "0.1.0"
 description = "MCP server to access Garmin data"
 readme = "README.md"
-requires-python = ">=3.10"
+requires-python = ">=3.12"
 dependencies = [
-    "python-dotenv==1.2.2",
-    "garminconnect==0.3.2",
-    "requests==2.33.0",
+    "python-dotenv==1.2.4",
+    "garminconnect==0.3.17",
+    "requests==2.34.2",
     # mcp 2.x renamed mcp.server.fastmcp -> mcp.server.mcpserver (FastMCP ->
     # MCPServer). Cap until the server is ported to the new API.
     "mcp>=1.28.1,<2",
@@ -25,8 +25,8 @@ garmin-mcp-auth = "garmin_mcp.auth_cli:main"
 [tool.hatch.build.targets.wheel]
 packages = ["src/garmin_mcp"]
 
-[tool.uv]
-dev-dependencies = [
+[dependency-groups]
+dev = [
     "pytest>=9.0.2",
     "pytest-asyncio>=0.25.2",
     "pytest-mock>=3.14.0",
