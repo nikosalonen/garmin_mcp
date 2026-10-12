@@ -156,3 +156,79 @@ async def test_string_tool_result_has_no_structured_content():
 
     assert result.content[0].text == '{"a": 1}'
     assert result.structured_content is None
+
+
+from mcp import Client
+from mcp.server.mcpserver.exceptions import ToolError
+
+
+def _server_with_filter():
+    server = MCPServer("test")
+    return server, _ToolFilter(server, set(), set())
+
+
+async def test_unexpected_tool_exception_message_reaches_client():
+    server, filt = _server_with_filter()
+
+    @filt.tool()
+    async def get_a(date: str) -> str:
+        raise ValueError(f"bad date {date}")
+
+    async with Client(server) as client:
+        result = await client.call_tool("get_a", {"date": "x"})
+
+    assert result.is_error
+    assert result.content[0].text == "Error executing tool get_a: bad date x"
+
+
+async def test_deliberate_tool_error_is_not_double_prefixed():
+    server, filt = _server_with_filter()
+
+    @filt.tool()
+    async def get_a() -> str:
+        raise ToolError("nope")
+
+    async with Client(server) as client:
+        result = await client.call_tool("get_a", {})
+
+    assert result.is_error
+    assert result.content[0].text == "Error executing tool get_a: nope"
+
+
+async def test_bad_arguments_return_a_readable_error():
+    server, filt = _server_with_filter()
+
+    @filt.tool()
+    async def get_a(limit: int) -> str:
+        return str(limit)
+
+    async with Client(server) as client:
+        missing = await client.call_tool("get_a", {})
+        wrong_type = await client.call_tool("get_a", {"limit": "many"})
+
+    assert missing.is_error and "limit" in missing.content[0].text
+    assert wrong_type.is_error and "limit" in wrong_type.content[0].text
+
+
+async def test_wrapped_tool_keeps_its_input_schema():
+    server, filt = _server_with_filter()
+
+    @filt.tool()
+    async def get_a(date: str, limit: int | None = None) -> str:
+        """Doc for get_a."""
+        return date
+
+    (tool,) = await server.list_tools()
+
+    assert tool.description == "Doc for get_a."
+    assert tool.input_schema["required"] == ["date"]
+    assert set(tool.input_schema["properties"]) == {"date", "limit"}
+
+
+def test_filter_returns_the_original_function():
+    server, filt = _server_with_filter()
+
+    async def get_a() -> str:
+        return "a"
+
+    assert filt.tool()(get_a) is get_a

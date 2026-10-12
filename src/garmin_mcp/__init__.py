@@ -5,10 +5,13 @@ Modular MCP Server for Garmin Connect Data
 import os
 import sys
 import base64
+import functools
+import inspect
 import threading
 
 import requests
 from mcp.server.mcpserver import MCPServer
+from mcp.server.mcpserver.exceptions import ToolError
 
 from garminconnect import Garmin, GarminConnectAuthenticationError, GarminConnectConnectionError, GarminConnectTooManyRequestsError
 
@@ -349,6 +352,38 @@ def _parse_transport_config() -> tuple[str, str, int]:
     return transport, http_host, http_port
 
 
+def _keep_error_message(fn):
+    """Re-raise a tool's unexpected exception as ToolError.
+
+    mcp 2.x hides the message of any other exception from the client
+    ("Error executing tool <name>"). ToolError keeps it, so the client sees
+    "Error executing tool <name>: <message>" as it did with mcp 1.x.
+    """
+    if inspect.iscoroutinefunction(fn):
+
+        @functools.wraps(fn)
+        async def guarded_async(*args, **kwargs):
+            try:
+                return await fn(*args, **kwargs)
+            except ToolError:
+                raise
+            except Exception as exc:
+                raise ToolError(str(exc)) from exc
+
+        return guarded_async
+
+    @functools.wraps(fn)
+    def guarded(*args, **kwargs):
+        try:
+            return fn(*args, **kwargs)
+        except ToolError:
+            raise
+        except Exception as exc:
+            raise ToolError(str(exc)) from exc
+
+    return guarded
+
+
 class _ToolFilter:
     """Wraps an MCPServer app to conditionally register tools by function name.
 
@@ -387,8 +422,10 @@ class _ToolFilter:
             name = explicit or getattr(fn, "__name__", "")
             self._seen.add(name.lower())
             if self._allowed(name):
-                return decorator(fn)
-            return fn  # skip registration; tool never reaches the LLM
+                decorator(_keep_error_message(fn))
+            # Return the plain function either way; modules and tests call it
+            # directly, and a skipped tool never reaches the LLM.
+            return fn
 
         return wrapper
 
