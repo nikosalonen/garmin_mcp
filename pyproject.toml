@@ -25,8 +25,8 @@ garmin-mcp-auth = "garmin_mcp.auth_cli:main"
 [tool.hatch.build.targets.wheel]
 packages = ["src/garmin_mcp"]
 
-[tool.uv]
-dev-dependencies = [
+[dependency-groups]
+dev = [
     "pytest>=9.0.2",
     "pytest-asyncio>=0.25.2",
     "pytest-mock>=3.14.0",
