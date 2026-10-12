@@ -137,6 +137,21 @@ async def test_get_workout_by_id_tool(app_with_workouts, mock_garmin_client):
 
 
 @pytest.mark.asyncio
+async def test_get_workout_by_id_tool_raw_returns_garmin_json(app_with_workouts, mock_garmin_client):
+    """raw=True returns Garmin's workout JSON unchanged instead of the curated summary"""
+    import json as json_module
+
+    mock_garmin_client.get_workout_by_id.return_value = MOCK_WORKOUT_DETAILS
+
+    result = await app_with_workouts.call_tool(
+        "get_workout_by_id",
+        {"workout_id": 123456, "raw": True}
+    )
+
+    assert json_module.loads(result.content[0].text) == MOCK_WORKOUT_DETAILS
+
+
+@pytest.mark.asyncio
 async def test_get_workout_by_id_tool_handles_swim_secondary_targets(
     app_with_workouts, mock_garmin_client
 ):
@@ -1603,6 +1618,28 @@ async def test_get_garmin_coach_workouts_rejects_invalid_date(
 
 # Delete workout tests
 @pytest.mark.asyncio
+async def test_delete_workout_requires_confirmation(app_with_workouts, mock_garmin_client):
+    """Test delete_workout returns a preview unless confirm=true"""
+    import json as json_module
+
+    mock_garmin_client.get_workout_by_id.return_value = {
+        "workoutId": 123456,
+        "workoutName": "Easy Run",
+        "sportType": {"sportTypeKey": "running"},
+    }
+
+    result = await app_with_workouts.call_tool(
+        "delete_workout",
+        {"workout_id": 123456}
+    )
+
+    result_data = json_module.loads(result.content[0].text)
+    assert result_data["status"] == "needs_confirmation"
+    assert result_data["workout"]["name"] == "Easy Run"
+    mock_garmin_client.delete_workout.assert_not_called()
+
+
+@pytest.mark.asyncio
 async def test_delete_workout_success(app_with_workouts, mock_garmin_client):
     """Test delete_workout tool when the library call succeeds"""
     import json as json_module
@@ -1610,11 +1647,16 @@ async def test_delete_workout_success(app_with_workouts, mock_garmin_client):
     # The MCP tool now delegates to garmin_client.delete_workout(id)
     # (high-level method). Success is signalled by absence of exception.
     mock_garmin_client.delete_workout.return_value = {}
+    mock_garmin_client.get_workout_by_id.return_value = {
+        "workoutId": 123456,
+        "workoutName": "Easy Run",
+        "sportType": {"sportTypeKey": "running"},
+    }
 
     workout_id = 123456
     result = await app_with_workouts.call_tool(
         "delete_workout",
-        {"workout_id": workout_id}
+        {"workout_id": workout_id, "confirm": True}
     )
 
     assert result is not None
@@ -1631,11 +1673,12 @@ async def test_delete_workout_failure(app_with_workouts, mock_garmin_client):
     import json as json_module
 
     mock_garmin_client.delete_workout.side_effect = Exception("API Error 404")
+    mock_garmin_client.get_workout_by_id.return_value = {"workoutId": 999999}
 
     workout_id = 999999
     result = await app_with_workouts.call_tool(
         "delete_workout",
-        {"workout_id": workout_id}
+        {"workout_id": workout_id, "confirm": True}
     )
 
     assert result is not None
@@ -1651,10 +1694,11 @@ async def test_delete_workout_exception(app_with_workouts, mock_garmin_client):
     import json as json_module
 
     mock_garmin_client.delete_workout.side_effect = Exception("Network error")
+    mock_garmin_client.get_workout_by_id.return_value = {"workoutId": 123456}
 
     result = await app_with_workouts.call_tool(
         "delete_workout",
-        {"workout_id": 123456}
+        {"workout_id": 123456, "confirm": True}
     )
 
     assert result is not None
@@ -1698,15 +1742,39 @@ async def test_upload_workout_exception(app_with_workouts, mock_garmin_client):
 
 # delete_workouts tests
 @pytest.mark.asyncio
+async def test_delete_workouts_requires_confirmation(app_with_workouts, mock_garmin_client):
+    """Test delete_workouts returns a preview unless confirm=true"""
+    import json as json_module
+
+    mock_garmin_client.get_workout_by_id.return_value = {
+        "workoutId": 123456,
+        "workoutName": "Easy Run",
+        "sportType": {"sportTypeKey": "running"},
+    }
+
+    result = await app_with_workouts.call_tool(
+        "delete_workouts",
+        {"workout_ids": [123456]}
+    )
+
+    result_data = json_module.loads(result.content[0].text)
+    assert result_data["status"] == "needs_confirmation"
+    assert result_data["total"] == 1
+    assert result_data["workouts"][0]["name"] == "Easy Run"
+    mock_garmin_client.delete_workout.assert_not_called()
+
+
+@pytest.mark.asyncio
 async def test_delete_workouts_single(app_with_workouts, mock_garmin_client):
     """Test delete_workouts with a single workout ID"""
     import json as json_module
 
     mock_garmin_client.delete_workout.return_value = {}
+    mock_garmin_client.get_workout_by_id.return_value = {"workoutId": 123456}
 
     result = await app_with_workouts.call_tool(
         "delete_workouts",
-        {"workout_ids": [123456]}
+        {"workout_ids": [123456], "confirm": True}
     )
 
     assert result is not None
@@ -1724,10 +1792,15 @@ async def test_delete_workouts_multiple(app_with_workouts, mock_garmin_client):
     import json as json_module
 
     mock_garmin_client.delete_workout.return_value = {}
+    mock_garmin_client.get_workout_by_id.side_effect = [
+        {"workoutId": 111},
+        {"workoutId": 222},
+        {"workoutId": 333},
+    ]
 
     result = await app_with_workouts.call_tool(
         "delete_workouts",
-        {"workout_ids": [111, 222, 333]}
+        {"workout_ids": [111, 222, 333], "confirm": True}
     )
 
     assert result is not None
@@ -1747,10 +1820,14 @@ async def test_delete_workouts_partial_failure(app_with_workouts, mock_garmin_cl
         {},
         Exception("API Error 404"),
     ]
+    mock_garmin_client.get_workout_by_id.side_effect = [
+        {"workoutId": 111},
+        {"workoutId": 999},
+    ]
 
     result = await app_with_workouts.call_tool(
         "delete_workouts",
-        {"workout_ids": [111, 999]}
+        {"workout_ids": [111, 999], "confirm": True}
     )
 
     assert result is not None
@@ -1769,10 +1846,11 @@ async def test_delete_workouts_exception(app_with_workouts, mock_garmin_client):
     import json as json_module
 
     mock_garmin_client.delete_workout.side_effect = Exception("Network error")
+    mock_garmin_client.get_workout_by_id.return_value = {"workoutId": 123456}
 
     result = await app_with_workouts.call_tool(
         "delete_workouts",
-        {"workout_ids": [123456]}
+        {"workout_ids": [123456], "confirm": True}
     )
 
     assert result is not None
@@ -2695,3 +2773,160 @@ async def test_get_scheduled_workouts_handles_null_graphql_data(app_with_workout
     text = result.content[0].text
     assert "NoneType" not in text
     assert "No workouts scheduled" in text
+
+
+# ---------------------------------------------------------------------------
+# update_workout (delegates to the library's native update_workout)
+# ---------------------------------------------------------------------------
+
+@pytest.mark.asyncio
+async def test_update_workout_tool(app_with_workouts, mock_garmin_client):
+    """update_workout delegates to garmin_client.update_workout(id, data)."""
+    import json as json_module
+
+    # Garmin echoes the stored document; a server-normalized name should win.
+    mock_garmin_client.update_workout.return_value = {
+        "workoutId": 123456,
+        "workoutName": "Edited Run (normalized)",
+    }
+    workout_data = {
+        "workoutName": "Edited Run",
+        "sportType": {"sportTypeId": 1, "sportTypeKey": "running"},
+    }
+
+    result = await app_with_workouts.call_tool(
+        "update_workout",
+        {"workout_id": 123456, "workout_data": workout_data},
+    )
+
+    args, kwargs = mock_garmin_client.update_workout.call_args
+    assert args[0] == 123456
+    assert args[1] == workout_data
+
+    result_data = json_module.loads(result.content[0].text)
+    assert result_data["status"] == "success"
+    assert result_data["workout_id"] == 123456
+    assert result_data["name"] == "Edited Run (normalized)"  # from server response
+
+
+@pytest.mark.asyncio
+async def test_update_workout_reuses_validators(app_with_workouts, mock_garmin_client):
+    """Invalid payloads are rejected before the library call, like upload_workout."""
+    workout_data = _running_workout_with_steps([{
+        "type": "ExecutableStepDTO",
+        "stepOrder": 1,
+        "stepType": {"stepTypeId": 4, "stepTypeKey": "recovery"},
+        "endCondition": {"conditionTypeId": 4, "conditionTypeKey": "heart.rate"},
+        "endConditionValue": 145.0,
+        "targetType": {"workoutTargetTypeId": 1, "workoutTargetTypeKey": "no.target"},
+    }])
+
+    result = await app_with_workouts.call_tool(
+        "update_workout",
+        {"workout_id": 123456, "workout_data": workout_data},
+    )
+
+    message = result.content[0].text
+    assert "Error updating workout" in message
+    mock_garmin_client.update_workout.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_update_workout_handles_empty_response(
+    app_with_workouts, mock_garmin_client
+):
+    """An empty (204) response falls back to the values we sent."""
+    import json as json_module
+
+    mock_garmin_client.update_workout.return_value = {}
+    workout_data = {
+        "workoutName": "Edited Run",
+        "sportType": {"sportTypeId": 1, "sportTypeKey": "running"},
+    }
+
+    result = await app_with_workouts.call_tool(
+        "update_workout",
+        {"workout_id": 123456, "workout_data": workout_data},
+    )
+
+    result_data = json_module.loads(result.content[0].text)
+    assert result_data["status"] == "success"
+    assert result_data["workout_id"] == 123456
+    assert result_data["name"] == "Edited Run"
+
+
+@pytest.mark.asyncio
+async def test_update_workout_surfaces_library_error(
+    app_with_workouts, mock_garmin_client
+):
+    """A library error (invalid id, HTTP failure) surfaces as an error string."""
+    mock_garmin_client.update_workout.side_effect = ValueError(
+        "workout_id must be a positive integer, got: 0"
+    )
+    workout_data = {
+        "workoutName": "Edited Run",
+        "sportType": {"sportTypeId": 1, "sportTypeKey": "running"},
+    }
+
+    result = await app_with_workouts.call_tool(
+        "update_workout",
+        {"workout_id": 123456, "workout_data": workout_data},
+    )
+
+    message = result.content[0].text
+    assert "Error updating workout" in message
+    assert "positive integer" in message
+
+
+# ---------------------------------------------------------------------------
+# get_exercise_types (bundled catalog from garminconnect.exercises)
+# ---------------------------------------------------------------------------
+
+@pytest.mark.asyncio
+async def test_get_exercise_types_lists_categories(app_with_workouts):
+    """With no category, returns a category summary (keys + counts)."""
+    import json as json_module
+
+    from garminconnect import exercises as gc_exercises
+
+    result = await app_with_workouts.call_tool("get_exercise_types", {})
+
+    data = json_module.loads(result.content[0].text)
+    assert data["count"] == len(gc_exercises.CATEGORIES)
+    keys = {c["key"] for c in data["categories"]}
+    assert keys == set(gc_exercises.CATEGORIES)
+    assert all(c["exercise_count"] >= 0 for c in data["categories"])
+
+
+@pytest.mark.asyncio
+async def test_get_exercise_types_single_category(app_with_workouts):
+    """With a category, returns its exercises (name + display name only)."""
+    import json as json_module
+
+    from garminconnect import exercises as gc_exercises
+
+    expected = [e for e in gc_exercises.EXERCISES if e["category"] == "BENCH_PRESS"]
+
+    result = await app_with_workouts.call_tool(
+        "get_exercise_types", {"category": "bench_press"}
+    )
+
+    data = json_module.loads(result.content[0].text)
+    assert data["category"] == "BENCH_PRESS"
+    assert data["count"] == len(expected)
+    ex = data["exercises"][0]
+    assert set(ex) == {"exercise_name", "display_name"}  # no muscles/equipment
+    assert {e["exercise_name"] for e in data["exercises"]} == {
+        e["exercise"] for e in expected
+    }
+
+
+@pytest.mark.asyncio
+async def test_get_exercise_types_unknown_category_surfaces_error(app_with_workouts):
+    """An unknown category returns an error string, not a crash."""
+    result = await app_with_workouts.call_tool(
+        "get_exercise_types", {"category": "NOPE"}
+    )
+
+    assert "Error retrieving exercise types" in result.content[0].text
+    assert "unknown category" in result.content[0].text
