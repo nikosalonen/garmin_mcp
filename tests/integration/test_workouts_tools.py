@@ -137,6 +137,21 @@ async def test_get_workout_by_id_tool(app_with_workouts, mock_garmin_client):
 
 
 @pytest.mark.asyncio
+async def test_get_workout_by_id_tool_raw_returns_garmin_json(app_with_workouts, mock_garmin_client):
+    """raw=True returns Garmin's workout JSON unchanged instead of the curated summary"""
+    import json as json_module
+
+    mock_garmin_client.get_workout_by_id.return_value = MOCK_WORKOUT_DETAILS
+
+    result = await app_with_workouts.call_tool(
+        "get_workout_by_id",
+        {"workout_id": 123456, "raw": True}
+    )
+
+    assert json_module.loads(result.content[0].text) == MOCK_WORKOUT_DETAILS
+
+
+@pytest.mark.asyncio
 async def test_get_workout_by_id_tool_handles_swim_secondary_targets(
     app_with_workouts, mock_garmin_client
 ):
